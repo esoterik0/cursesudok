@@ -115,21 +115,22 @@ def find() -> tuple[int, int, int]:  # (x, y, v)
 
         return s
 
+    cels: list[tuple[int, set[int]]]
     # check cols, rows and boxes for single values as well
     for x in range(9):
-        cels: list[tuple[int, set[int]]] = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
+        cels = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (x, cels[i][0], s.pop())
 
     for y in range(9):
-        cels: list[tuple[int, set[int]]] = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
+        cels = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (cels[i][0], y, s.pop())
 
     for b in range(9):
-        cels: list[tuple[int, set[int]]] = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
+        cels = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (*cels[i][0], s.pop())
