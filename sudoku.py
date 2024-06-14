@@ -30,111 +30,116 @@ yloc: int = 4
 # helper functions
 def loc2txt(x: int, y: int) -> tuple[int, int]:
     "returns screen/text (col,row) from board locations"
+
     return (y + y//3 + 2, x + x//3 + 2)  # board starts at (2,2) a//3 adds a spacer per 3.
 
 
 def loc2tracker(x: int, y: int) -> tuple[tracker, tracker, tracker]:
     "returns trackers (col, row, block)"
+
     return (cols[x], rows[y], blks[x//3 + (y//3)*3])
 
 
 def loc2boardpos(x: int, y: int) -> int:
     "returns the index in the board list/vector"
+
     return x + y*9
 
 
 def getIntersection(x: int, y: int) -> tracker:
     "calculates the intersection of all three trackers for this location: col, row, block."
+
     c, r, b = loc2tracker(x, y)
     return c.intersection(r).intersection(b)
 
 
 def setCell(x: int, y: int, v: int, attrs: int = curses.A_NORMAL):
-    "sets a cell, and updates trackers"
+    "sets a cell value, and updates trackers"
     global board, battrs
 
-    if board[loc2boardpos(x, y)] != 0:
-        return
+    # the position must not already be filled; it must be zero.
+    if board[pos := loc2boardpos(x, y)] != 0:  # cache position
+        return  # position is filled
 
-    inter = getIntersection(x, y)
+    # make sure v is a valid value
+    if v not in getIntersection(x, y):
+        return  # v is not valid.
 
-    if v not in inter:
-        return
-
+    # remove the value from all 3 trackers
     for s in loc2tracker(x, y):
         s.remove(v)
 
-    pos = loc2boardpos(x, y)
-    board[pos] = v
-    battrs[pos] = attrs
+    # finally set ...
+    board[pos] = v  # ... the position ...
+    battrs[pos] = attrs  # ... and the attrs
 
 
 def clearCell(x: int, y: int):
-    "clears a cell"
+    "clears a value from a cell and updates trackers"
     global board, battrs
 
-    if (val := board[loc2boardpos(x, y)]) == 0:
-        return
+    # check that the cell has a value to clear
+    if (val := board[pos := loc2boardpos(x, y)]) == 0:  # cache val and pos
+        return  # cell already clear; don't add zero to trackers
 
+    # add values back to all 3 trackers
     for t in loc2tracker(x, y):
         t.add(val)
 
-    board[loc2boardpos(x, y)] = 0
-    battrs[loc2boardpos(x, y)] = curses.A_NORMAL
+    # finally ...
+    board[pos] = 0  # ... clear the pos ...
+    battrs[pos] = curses.A_NORMAL  # and attr
 
 
 def empty(x: int, y: int):
     "returns if a cell is empty or not"
+
     return board[loc2boardpos(x, y)] == 0
 
 
-def find():
+def find() -> tuple[int, int, int]:  # (x, y, v)
     "finds the first cell with only one possibility if it exists"
-    for x, y in product(range(9), range(9)):
+
+    for x, y in product(range(9), range(9)):  # double for
         if not empty(x, y):
             continue  # skip filled in spaces to prevent false positives
-        inter = getIntersection(x, y)
-        if len(inter) == 1:
-            return (x, y, inter.pop())
+        if len(inter := getIntersection(x, y)) == 1:  # a single value left means that we have found a value
+            return (x, y, inter.pop())  # return the pos & value
 
+    # we use this helper to check the cols, rows, and boxes
+    def diff(i: int, cels: list[tuple[int, set[int]]]) -> set[int]:
+        "helper to difference the a set from its neighbors"
+        s = cels[i][1].copy()
+        for _, vs in cels[0:i]+cels[i+1:]:
+            s.difference_update(vs)
+
+        return s
+
+    # check cols, rows and boxes for single values as well
     for x in range(9):
-        cels = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
-        ln = len(cels)
-        for i in range(ln):
-            y = cels[i][0]
-            s = cels[i][1].copy()
-            for _, xs in cels[0:i]+cels[i+1:ln]:
-                s.difference_update(xs)
-            if len(s) == 1:
-                return (x, y, s.pop())
+        cels: list[tuple[int, set[int]]] = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
+        for i in range(len(cels)):
+            if len(s := diff(i, cels)) == 1:
+                return (x, cels[i][0], s.pop())
 
     for y in range(9):
-        cels = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
-        ln = len(cels)
-        for i in range(ln):
-            x = cels[i][0]
-            s = cels[i][1].copy()
-            for _, ys in cels[0:i]+cels[i+1:ln]:
-                s.difference_update(ys)
-            if len(s) == 1:
-                return (x, y, s.pop())
+        cels: list[tuple[int, set[int]]] = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
+        for i in range(len(cels)):
+            if len(s := diff(i, cels)) == 1:
+                return (cels[i][0], y, s.pop())
 
     for b in range(9):
-        cels = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
-        ln = len(cels)
-        for i in range(ln):
-            x, y = cels[i][0]
-            s = cels[i][1].copy()
-            for _, bs in cels[0:i]+cels[i+1:ln]:
-                s.difference_update(bs)
-            if len(s) == 1:
-                return (x, y, s.pop())
+        cels: list[tuple[int, set[int]]] = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
+        for i in range(len(cels)):
+            if len(s := diff(i, cels)) == 1:
+                return (*cels[i][0], s.pop())
 
-    return (0, 0, 0)
+    return (0, 0, 0)  # sentinel value for not found.
 
 
 def cursor(stdscr: curses.window):
     "sets the cursor to current x,y pos"
+
     y, x = loc2txt(xloc, yloc)
     stdscr.move(y, x)
 
@@ -143,7 +148,7 @@ def update(stdscr: curses.window):
     "updates the screen to match the data sources"
     global board
 
-    # update board values
+    # update board values on screen
     for x in range(9):
         for y in range(9):
             py, px = loc2txt(x, y)
@@ -153,10 +158,10 @@ def update(stdscr: curses.window):
             out = str(v)
             if (v == 0):
                 if (len(getIntersection(x, y)) == 0):
-                    out = "X"
+                    out = "X"  # cells that have no possibilities are marked with an X
                     c = curses.A_REVERSE
                 else:
-                    out = "."
+                    out = "."  # empty cels get a a .
 
             stdscr.addstr(py, px, out, c)
 
@@ -189,32 +194,36 @@ def update(stdscr: curses.window):
     cursor(stdscr)
 
 
-def clamp(v, low=0, high=8):
+def clamp(v, low=0, high=8) -> int:
     "clamps values to low/high"
+
     return max(low, min(high, v))
 
 
 def search():
     "searches for the next space with only one possible value, sets it and repeats until none are found."
+
     while (ret := find()) != (0, 0, 0):
-        x, y, v = ret
-        setCell(x, y, v, curses.A_REVERSE)
+        setCell(*ret, curses.A_REVERSE)
 
 
 def reset():
     "resets all cels set by search; i.e. automatically"
-    for x, y in product(range(9), range(9)):
+
+    for x, y in product(range(9), range(9)):  # double for
         if battrs[loc2boardpos(x, y)] == curses.A_REVERSE:
             clearCell(x, y)
 
 
 def output():
+    "outputs the board to out.text; output is formatted with spaces and new lines"
+
     with open("out.txt", 'w') as f:
         for x in range(9):
-            if x and not x % 3:
+            if x and not x % 3:  # split rows into groups of three
                 f.write("\n")
             for y in range(9):
-                if y and not y % 3:
+                if y and not y % 3:  # split cols into groups of three
                     f.write(" ")
                 ch = '.'
                 if val := board[loc2boardpos(x, y)] != 0:
@@ -224,6 +233,7 @@ def output():
 
 
 def clear():
+    "clears the entire board."
     for x, y in product(range(9), range(9)):
         clearCell(x, y)
 
@@ -231,6 +241,8 @@ def clear():
 def main(stdscr: curses.window):
     "main: runs the sudoku logic"
     global board, battrs, xloc, yloc
+
+    # print static elements
     stdscr.addstr(0, 20, "SUDOKU Solver/Creator")
 
     stdscr.addstr(0,   0, " |abc|def|ghi|")
@@ -261,10 +273,13 @@ def main(stdscr: curses.window):
     stdscr.addstr(9,  40, "o, O: outputs to out.txt")
     stdscr.addstr(10, 40, "c, C: clears all values")
 
+    # initial update
     update(stdscr)
     stdscr.refresh()
 
+    # program loop
     while key := stdscr.getch():
+        # check which key is pressed and execute actions
         if key in (curses.ascii.ESC, ord('q'), ord('Q'), ord('x'), ord('X')):
             return
 
@@ -290,6 +305,7 @@ def main(stdscr: curses.window):
         elif key in (ord('c'), ord("C")):
             clear()
 
+        # update the screen
         update(stdscr)
         stdscr.refresh()
 
