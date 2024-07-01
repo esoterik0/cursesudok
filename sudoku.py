@@ -59,9 +59,11 @@ def setCell(x: int, y: int, v: int, attrs: int = curses.A_NORMAL):
 
     # the position must not already be filled; it must be zero.
     if board[pos := loc2boardpos(x, y)] != 0:  # cache position
+        if v == board[pos]:  # if the position is filled and the value matches ...
+            battrs[curses.A_NORMAL]  # ... set to a given, as opposed to derived, value.
         return  # position is filled
 
-    # make sure v is a valid value
+    # make sure v is a valid choice
     if v not in getIntersection(x, y):
         return  # v is not valid.
 
