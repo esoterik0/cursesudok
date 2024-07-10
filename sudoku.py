@@ -60,7 +60,7 @@ def setCell(x: int, y: int, v: int, attrs: int = curses.A_NORMAL):
     # the position must not already be filled; it must be zero.
     if board[pos := loc2boardpos(x, y)] != 0:  # cache position
         if v == board[pos]:  # if the position is filled and the value matches ...
-            battrs[curses.A_NORMAL]  # ... set to a given, as opposed to derived, value.
+            battrs[pos] = curses.A_NORMAL  # ... set to a given, as opposed to derived, value.
         return  # position is filled
 
     # make sure v is a valid choice
@@ -241,6 +241,25 @@ def clear():
         clearCell(x, y)
 
 
+def toggle(x: int, y: int):
+    "toggles a cels fixed/calculated status"
+    global board, battrs
+
+    # the position must not already be filled; it must be zero.
+    if board[pos := loc2boardpos(x, y)] == 0:  # cache position
+        return  # position is filled
+
+    battrs[pos] = curses.A_REVERSE if curses.A_NORMAL == battrs[pos] else curses.A_NORMAL
+
+
+def fix():
+    "sets all cells to fixed status"
+    global battrs
+
+    for p in range(9*9):
+        battrs[p] = curses.A_NORMAL
+
+
 def main(stdscr: curses.window):
     "main: runs the sudoku logic"
     global board, battrs, xloc, yloc
@@ -270,11 +289,13 @@ def main(stdscr: curses.window):
     stdscr.addstr(3,  40, "ESC, q, Q, x, X: quit")
     stdscr.addstr(4,  40, "0-9: set cel to value and search")
     stdscr.addstr(5,  40, "UP, DOWN, LEFT, RIGHT: movement")
-    stdscr.addstr(6,  40, "BACKSPACE, DEL: clear cel")
-    stdscr.addstr(7,  40, "r, R: reset calculated values")
-    stdscr.addstr(8,  40, "SPACE, s, S: search for cels to set")
-    stdscr.addstr(9,  40, "o, O: outputs to out.txt")
-    stdscr.addstr(10, 40, "c, C: clears all values")
+    stdscr.addstr(6,  40, "SPACE, s, S: search for cels to set")
+    stdscr.addstr(7,  40, "BACKSPACE, DEL: clear cel")
+    stdscr.addstr(8,  40, "ENTER: Toggle cel fixed/calculated status")
+    stdscr.addstr(9,  40, "f, F: fix all cells")
+    stdscr.addstr(10, 40, "r, R: reset calculated values")
+    stdscr.addstr(11, 40, "c, C: clears all values")
+    stdscr.addstr(12, 40, "o, O: outputs to out.txt")
 
     # initial update
     update(stdscr)
@@ -299,6 +320,8 @@ def main(stdscr: curses.window):
             xloc = clamp(xloc+1)
         elif key in (curses.KEY_DC, curses.KEY_BACKSPACE, curses.ascii.DEL, curses.ascii.BS):
             clearCell(xloc, yloc)
+        elif key in (curses.ascii.LF, curses.ascii.CR, curses.ascii.NL):
+            toggle(xloc, yloc)
         elif key in (ord('r'), ('R')):
             reset()
         elif key in (curses.ascii.SP, ord('s'), ord('S')):
@@ -307,6 +330,8 @@ def main(stdscr: curses.window):
             output()
         elif key in (ord('c'), ord("C")):
             clear()
+        elif key in (ord('f'), ord('F')):
+            fix()
 
         # update the screen
         update(stdscr)
