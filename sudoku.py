@@ -3,17 +3,20 @@ import curses.ascii
 from itertools import product
 
 tracker = set[int]  # type alias
+location = tuple[int, int]  # type alias
 
 # tracking data
 board: list[int] = [0 for _ in range(9*9)]  # main board.
 battrs: list[int] = [curses.A_NORMAL for _ in range(9*9)]
 
 # trackers will track the sudoku conditions, we initialize them to be full.
+# the trackers track available values that still need to be placed,
+# if a value is not in the tracker it has been used somewhere
 cols: list[tracker] = [{x+1 for x in range(9)} for _ in range(9)]
 rows: list[tracker] = [{x+1 for x in range(9)} for _ in range(9)]
 blks: list[tracker] = [{x+1 for x in range(9)} for _ in range(9)]
 
-boxes: list[list[tuple[int, int]]] = []  # co-ordinates to box members
+boxes: list[list[location]] = []  # co-ordinates to box members
 
 # boxes requires special initialization to calculate the co-ordinates
 for x, y in product(range(3), range(3)):  # double for
@@ -28,28 +31,24 @@ yloc: int = 4
 
 
 # helper functions
-def loc2txt(x: int, y: int) -> tuple[int, int]:
+def loc2txt(x: int, y: int) -> location:
     "returns screen/text (col,row) from board locations"
-
     return (y + y//3 + 2, x + x//3 + 2)  # board starts at (2,2) a//3 adds a spacer per 3.
 
 
-def loc2tracker(x: int, y: int) -> tuple[tracker, tracker, tracker]:
+def loc2trackers(x: int, y: int) -> tuple[tracker, tracker, tracker]:
     "returns trackers (col, row, block)"
-
     return (cols[x], rows[y], blks[x//3 + (y//3)*3])
 
 
 def loc2boardpos(x: int, y: int) -> int:
     "returns the index in the board list/vector"
-
     return x + y*9
 
 
 def getIntersection(x: int, y: int) -> tracker:
     "calculates the intersection of all three trackers for this location: col, row, block."
-
-    c, r, b = loc2tracker(x, y)
+    c, r, b = loc2trackers(x, y)
     return c.intersection(r).intersection(b)
 
 
@@ -68,7 +67,7 @@ def setCell(x: int, y: int, v: int, attrs: int = curses.A_NORMAL):
         return  # v is not valid.
 
     # remove the value from all 3 trackers
-    for s in loc2tracker(x, y):
+    for s in loc2trackers(x, y):
         s.remove(v)
 
     # finally set ...
@@ -85,7 +84,7 @@ def clearCell(x: int, y: int):
         return  # cell already clear; don't add zero to trackers
 
     # add values back to all 3 trackers
-    for t in loc2tracker(x, y):
+    for t in loc2trackers(x, y):
         t.add(val)
 
     # finally ...
@@ -93,15 +92,15 @@ def clearCell(x: int, y: int):
     battrs[pos] = curses.A_NORMAL  # and attr
 
 
-def empty(x: int, y: int):
+def empty(x: int, y: int) -> bool:
     "returns if a cell is empty or not"
-
     return board[loc2boardpos(x, y)] == 0
 
 
 def find() -> tuple[int, int, int]:  # (x, y, v)
     "finds the first cell with only one possibility if it exists"
 
+    # check each cel to to see if it can be fixed.
     for x, y in product(range(9), range(9)):  # double for
         if not empty(x, y):
             continue  # skip filled in spaces to prevent false positives
@@ -109,7 +108,7 @@ def find() -> tuple[int, int, int]:  # (x, y, v)
             return (x, y, inter.pop())  # return the pos & value
 
     # we use this helper to check the cols, rows, and boxes
-    def diff(i: int, cels: list[tuple[int, set[int]]]) -> set[int]:
+    def diff(i: int, cels: list[tuple[int, tracker]]) -> tracker:
         "helper to difference the a set from its neighbors"
         s = cels[i][1].copy()
         for _, vs in cels[0:i]+cels[i+1:]:
@@ -117,22 +116,21 @@ def find() -> tuple[int, int, int]:  # (x, y, v)
 
         return s
 
-    cels: list[tuple[int, set[int]]]
     # check cols, rows and boxes for single values as well
     for x in range(9):
-        cels = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
+        cels: list[tuple[int, tracker]] = [(y, getIntersection(x, y)) for y in range(9) if empty(x, y)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (x, cels[i][0], s.pop())
 
     for y in range(9):
-        cels = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
+        cels: list[tuple[int, tracker]] = [(x, getIntersection(x, y)) for x in range(9) if empty(x, y)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (cels[i][0], y, s.pop())
 
     for b in range(9):
-        cels = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
+        cels: list[tuple[location, tracker]] = [(bx, getIntersection(*bx)) for bx in boxes[b] if empty(*bx)]
         for i in range(len(cels)):
             if len(s := diff(i, cels)) == 1:
                 return (*cels[i][0], s.pop())
@@ -142,9 +140,7 @@ def find() -> tuple[int, int, int]:  # (x, y, v)
 
 def cursor(stdscr: curses.window):
     "sets the cursor to current x,y pos"
-
-    y, x = loc2txt(xloc, yloc)
-    stdscr.move(y, x)
+    stdscr.move(*loc2txt(xloc, yloc))
 
 
 def update(stdscr: curses.window):
@@ -152,40 +148,32 @@ def update(stdscr: curses.window):
     global board
 
     # update board values on screen
-    for x in range(9):
-        for y in range(9):
-            py, px = loc2txt(x, y)
-            pos = loc2boardpos(x, y)
-            v = board[pos]
-            c = battrs[pos]
-            out = str(v)
-            if (v == 0):
-                if (len(getIntersection(x, y)) == 0):
-                    out = "X"  # cells that have no possibilities are marked with an X
-                    c = curses.A_REVERSE
-                else:
-                    out = "."  # empty cels get a a .
+    for x, y in product(range(9), range(9)):
+        pos = loc2boardpos(x, y)
+        v = board[pos]
+        c = battrs[pos]
+        out = str(v)
+        if (v == 0):
+            if (len(getIntersection(x, y)) == 0):
+                out = "X"  # cells that have no possibilities are marked with an X
+                c = curses.A_REVERSE
+            else:
+                out = "."  # empty cels get a .
 
-            stdscr.addstr(py, px, out, c)
+        stdscr.addstr(*loc2txt(x, y), out, c)
 
     # update column possibilities
-    for c in range(9):
-        col = cols[c]
-        for v in range(9):
-            stdscr.addch(14 + v, 2 + c + c//3, str(v+1) if v+1 in col else " ")
+    for c, v in product(range(9), range(9)):
+        stdscr.addch(14 + v, 2 + c + c//3, str(v+1) if v+1 in cols[c] else " ")
 
     # update row possibilities
-    for r in range(9):
-        row = rows[r]
-        for h in range(9):
-            stdscr.addch(2 + r + r//3, 15+h, str(h+1) if h+1 in row else " ")
+    for r, h in product(range(9), range(9)):
+        stdscr.addch(2 + r + r//3, 15+h, str(h+1) if h+1 in rows[r] else " ")
 
     # update box possibilities
-    for c in range(9):
-        box = blks[c]
+    for c, v in product(range(9), range(9)):
         stdscr.addch(13, 20 + 2*c, chr(ord("a")+c))
-        for v in range(9):
-            stdscr.addch(14 + v, 20 + 2*c, str(v+1) if v+1 in box else " ")
+        stdscr.addch(14 + v, 20 + 2*c, str(v+1) if v+1 in blks[c] else " ")
 
     # update intersection possibilities
     inter = getIntersection(xloc, yloc)
@@ -198,21 +186,18 @@ def update(stdscr: curses.window):
 
 
 def clamp(v, low=0, high=8) -> int:
-    "clamps values to low/high"
-
+    "clamps values to [low, high]"
     return max(low, min(high, v))
 
 
 def search():
     "searches for the next space with only one possible value, sets it and repeats until none are found."
-
     while (ret := find()) != (0, 0, 0):
         setCell(*ret, curses.A_REVERSE)
 
 
 def reset():
     "resets all cels set by search; i.e. automatically"
-
     for x, y in product(range(9), range(9)):  # double for
         if battrs[loc2boardpos(x, y)] == curses.A_REVERSE:
             clearCell(x, y)
@@ -220,7 +205,6 @@ def reset():
 
 def output():
     "outputs the board to out.text; output is formatted with spaces and new lines"
-
     with open("out.txt", 'w') as f:
         for x in range(9):
             if x and not x % 3:  # split rows into groups of three
